@@ -1,0 +1,79 @@
+#!/usr/bin/env perl
+
+use warnings;
+use diagnostics;
+use DBI;
+use Data::Dumper;
+use Test::More qw(no_plan);
+
+my $opt = { 'debug' => ($ENV{'TEST_DEBUG'} ? 2 : 0) };
+
+BEGIN { use_ok('PPOPS::DB::Manager'); }
+
+my $dbh;
+
+my $mgr = PPOPS::DB::Manager->new($opt);
+
+ok($mgr->exists_db('xdb_init_test') == 0, 'db-dne');
+
+ok($mgr->create_db('xdb_init_test'), 'db-create');
+
+ok($mgr->exists_db('xdb_init_test'), 'db-exists');
+
+$dbh = DBI->connect('dbi:mysql:', 'root', '');
+$dbh->do('CREATE DATABASE xdb_init_test2');
+
+ok($mgr->exists_db('xdb_init_test'), 'db-exists-notlast');
+$dbh->do('DROP DATABASE xdb_init_test2');
+
+ok($mgr->ensure_db('xdb_init_test') == 0, 'db-ensure-exists');
+
+ok($mgr->exists_user('xappuser') == 0, 'user-dne');
+
+ok($mgr->create_user('xappuser', { password => 'foo' }), 'user-create');
+
+ok($mgr->exists_user('xappuser'), 'user-exists');
+
+ok(DBI->connect('dbi:mysql:', 'xappuser', 'foo'), 'user-connect');
+
+ok($mgr->ensure_user('xappuser', { password => 'foo' }) == 0, 'user-ensure-exists');
+
+$dbh = DBI->connect('dbi:mysql:', 'root', '');
+$dbh->do('DROP USER xappuser@\'%\'');
+$dbh->do('DROP USER xappuser@localhost');
+$dbh->do('DROP DATABASE xdb_init_test');
+
+ok($mgr->ensure_db('xdb_init_test') eq 'xdb_init_test', 'db-ensure-dne');
+
+is($mgr->ensure_user('xappuser', { password => 'foo' }), 'xappuser', 'user-ensure-dne');
+
+ok(DBI->connect('dbi:mysql:', 'xappuser', 'foo'), 'user-connect-ensure');
+
+
+$dbh = DBI->connect('dbi:mysql:', 'root', '');
+$dbh->do('DROP USER xappuser@\'%\'');
+$dbh->do('DROP USER xappuser@localhost');
+
+ok($mgr->ensure_user('xappuser', { password => 'foo', grant => { 'xdb_init_test.*' => 'ALL PRIVILEGES' } }), 'user-ensure-grant');
+
+is($mgr->exists_tab('xdb_init_test', 'emp'), 0, 'tab-dne');
+
+my $st = 'CREATE TABLE emp (id INTEGER PRIMARY KEY, name VARCHAR(30), dept VARCHAR(30), manager INTEGER)';
+
+is($mgr->create_tab('xdb_init_test', 'emp', $st), 'xdb_init_test.emp', 'tab-create');
+
+$dbh = DBI->connect('dbi:mysql:', 'xappuser', 'foo');
+$dbh->do('use xdb_init_test');
+my $info = $dbh->selectall_arrayref('DESCRIBE emp');
+
+print Data::Dumper->Dump([$info], ['info']), "\n" if $ENV{'TEST_DEBUG'};
+
+is_deeply([ map { $_->[0] } @$info ], ['id', 'name', 'dept', 'manager'], 'desc-tab');
+
+ok($dbh->do('DROP TABLE emp'), 'drop-tab');
+
+is($mgr->exists_tab('xdb_init_test', 'emp'), 0, 'tab-dne-2');
+
+is($mgr->ensure_tab('xdb_init_test', 'emp', $st), 'xdb_init_test.emp', 'tab-ensure-dne');
+
+is($mgr->ensure_tab('xdb_init_test', 'emp', $st), 0, 'tab-ensure-exists');

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+mysql -uroot <<EOF 2>& 1 | grep -v "ERROR 1396"
+DROP DATABASE IF EXISTS xdb_init_test;
+DROP DATABASE IF EXISTS xdb_init_test2;
+DROP USER xappuser@localhost;
+DROP USER xappuser@'%';
+DROP USER xappowner@localhost;
+DROP USER xappowner@'%';
+EOF
+exit 0
+
+
+rm -rf test/data
+mkdir -p test/data
+cp -R test/fixture/* test/data

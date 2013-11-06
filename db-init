@@ -1,0 +1,221 @@
+#!/usr/bin/env perl
+# /* Copyright 2013 Proofpoint, Inc. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# */
+
+use strict;
+use lib '/opt/pptools';
+use ppenv;
+use Optconfig;
+use PPOPS::DB::Manager;
+use PPOPS::JSON;
+use Data::Dumper;
+
+use vars qw($VERSION);
+
+$VERSION = '__VERSION__';
+
+=head1 NAME
+
+db-init - Initialize database resources
+
+=head1 SYNOPSIS
+
+   db-init file [file [...]]
+      file - json file containing database resource definition(s)
+
+=head1 DESCRIPTION
+
+The db-init script reads the provided json file(s), taking from them
+the definitions of database resources that are required to be created.
+It then ensures the resources are created idempotently.
+
+=head2 Parameters
+
+The following parameters appear in the JSON database specification file:
+
+=over 4
+
+=item database
+
+The keys of this object are the names of databases to ensure. Each such
+object has the following keys:
+
+=back
+
+=over 8
+
+=item table
+
+The keys of this object are the names of tables to create: each value is a
+statement used to create the table.
+
+=back
+
+=over 4
+
+=item user
+
+The keys of this object are the names of database users to create. B<Note:>
+Two actual accounts are created: one for localhost and one for host '%'.
+Because of the way mysql resolves authentication, with the hostname
+matched before the username, both accounts are required. Each
+such user object has the following keys:
+
+=back
+
+=over 8
+
+=item password
+
+The plaintext password of the database user account to create.
+
+=item grant
+
+The keys of this object describe database objects to which to grant
+privileges; the value of each pair describes the privilege(s) to grant.
+
+=back
+
+=head1 EXAMPLES
+
+   { "database":
+      { "personnel": {
+         "table": { "emp": "CREATE TABLE emp (id, name, dept, manager)",
+                    "dept": "CREATE TABLE dept (id, name, head)" },
+     "user": { "app_pers": { "password": "sekrit",
+                             "grant": { "personnel.*": "ALL PRIVILEGES" } }
+     }
+   }
+
+=over 4
+
+=item *
+
+Creates the database "personnel" if it does not exist
+
+=item *
+
+Creates the tables "emp" and "dept" with the statements if they do not
+exist.
+
+=item *
+
+Creates the user "app_pers@%" identified with the given password (in
+plaintext) if it does not exist.
+
+=back
+
+=head1 BUGS/LIMITATIONS
+
+=over 4
+
+=item *
+
+db-init does not check the attributes of the resources, only their
+existence. Thus it will not change passwords of users or alter tables.
+
+=head1 TODO
+
+=over 4
+
+=item *
+
+Support giving password hashes
+
+=back
+
+=head1 AUTHOR
+
+=cut
+
+my $opt = Optconfig->new('db-util', { 'driver=s' => 'mysql',
+                                      'username=s' => 'root',
+                                      'password=s' => '' });
+
+my $mgr = PPOPS::DB::Manager->new($opt);
+
+my $cfg = { };
+
+for my $file (@ARGV) {
+   my $text = slurp($file);
+   my $next = eat_json($text);
+   $cfg = merge($next => $cfg);
+}
+
+print ddump($cfg), "\n" if $opt->{'debug'};
+
+if ($cfg->{'database'}) {
+   # Create databases
+   for my $db (keys %{$cfg->{'database'}}) {
+      $opt->vrb(1, "Ensuring $db");
+      my $created = $mgr->ensure_db($db);
+      $opt->vrb(1, "   created: $created");
+      if ($cfg->{'database'}->{$db}->{'table'}) {
+         my $table = $cfg->{'database'}->{$db}->{'table'};
+         for my $tab (keys %$table) {
+            my @st = ();
+            $opt->vrb(1, "Ensuring $db.$tab");
+            if (ref($table->{$tab}) and ref($table->{$tab}) eq 'ARRAY') {
+               @st = @{$table->{$tab}};
+            } else {
+               @st = ($table->{$tab});
+            }
+            print ddump($table), "\n" if $opt->{'debug'};
+            print ddump(@st), "\n" if $opt->{'debug'};
+            my $created = $mgr->ensure_tab($db, $tab, @st);
+            $opt->vrb(1, "   created: $created");
+         }
+      }
+   }
+}
+
+if ($cfg->{'user'}) {
+   for my $user (keys %{$cfg->{'user'}}) {
+      $opt->vrb(1, "Ensuring $user");
+      my $created = $mgr->ensure_user($user, $cfg->{'user'}->{$user});
+      $opt->vrb(1, "   created: $created");
+   }
+}
+
+sub slurp {
+   my ($file) = @_;
+   my $text;
+   
+   open(my $fh, '<', $file) or die "Can't open $file - $!";
+   $text = do { local $/; <$fh> };
+   close($fh);
+
+   return $text;
+}
+
+sub merge {
+   my ($from, $to) = @_;
+
+   for my $key (keys %$from) {
+      if (ref($from->{$key}) and ref($from->{$key}) eq 'HASH' and
+          ref($to->{$key}) and ref($to->{$key}) eq 'HASH') {
+         $to->{$key} = merge($from->{$key}, $to->{$key});
+      } else {
+         $to->{$key} = $from->{$key};
+      }
+   }
+
+   return $to;
+}
+
+sub ddump {
+   my $v = 'v0';
+   Data::Dumper->new([@_], [map {$v++} @_])->Indent(0)->Terse(1)->Dump;
+}

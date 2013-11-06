@@ -1,0 +1,35 @@
+#!/bin/bash
+
+
+ok_pat()
+{
+   local name pat tf
+   name="$1"
+   shift 1
+   pat="$1"
+   shift 1
+   tf=$(mktemp test/data/tmp/$name-XXXXXX)
+   echo -n "$name "
+   "$@" | tee $tf
+   if egrep -q "$pat" $tf
+   then
+      echo ok
+   else
+      echo NOT ok ">>>"
+      cat $tf
+      echo "   <<<"
+   fi
+}
+   
+# Rerun setup, drop database and users
+test/01setup
+
+mkdir -p test/data/tmp
+
+if [ "$TEST_DEBUG" ]
+then
+   debug="--debug --debug"
+fi
+
+ok_pat ensure "Ensuring xdb_init_test" db-init --verbose $debug test/data/xdb_init_test.conf
+ok_pat ensure "created: 0" db-init --verbose $debug test/data/xdb_init_test.conf

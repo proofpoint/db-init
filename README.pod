@@ -1,0 +1,113 @@
+=head1 NAME
+
+db-init - Initialize database resources
+
+=head1 SYNOPSIS
+
+   db-init file [file [...]]
+      file - json file containing database resource definition(s)
+
+=head1 DESCRIPTION
+
+The db-init script reads the provided json file(s), taking from them
+the definitions of database resources that are required to be created.
+It then ensures the resources are created idempotently.
+
+=head2 Parameters
+
+The following parameters appear in the JSON database specification file:
+
+=over 4
+
+=item database
+
+The keys of this object are the names of databases to ensure. Each such
+object has the following keys:
+
+=back
+
+=over 8
+
+=item table
+
+The keys of this object are the names of tables to create: each value is a
+statement used to create the table.
+
+=back
+
+=over 4
+
+=item user
+
+The keys of this object are the names of database users to create. B<Note:>
+Two actual accounts are created: one for localhost and one for host '%'.
+Because of the way mysql resolves authentication, with the hostname
+matched before the username, both accounts are required. Each
+such user object has the following keys:
+
+=back
+
+=over 8
+
+=item password
+
+The plaintext password of the database user account to create.
+
+=item grant
+
+The keys of this object describe database objects to which to grant
+privileges; the value of each pair describes the privilege(s) to grant.
+
+=back
+
+=head1 EXAMPLES
+
+   { "database":
+      { "personnel": {
+         "table": { "emp": "CREATE TABLE emp (id, name, dept, manager)",
+                    "dept": "CREATE TABLE dept (id, name, head)" },
+     "user": { "app_pers": { "password": "sekrit",
+                             "grant": { "personnel.*": "ALL PRIVILEGES" } }
+     }
+   }
+
+=over 4
+
+=item *
+
+Creates the database "personnel" if it does not exist
+
+=item *
+
+Creates the tables "emp" and "dept" with the statements if they do not
+exist.
+
+=item *
+
+Creates the user "app_pers@%" identified with the given password (in
+plaintext) if it does not exist.
+
+=back
+
+=head1 BUGS/LIMITATIONS
+
+=over 4
+
+=item *
+
+db-init does not check the attributes of the resources, only their
+existence. Thus it will not change passwords of users or alter tables.
+
+=head1 TODO
+
+=over 4
+
+=item *
+
+Support giving password hashes
+
+=back
+
+=head1 AUTHOR
+
+=cut

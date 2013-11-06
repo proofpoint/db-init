@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [ -z "$TEST_DEBUG" ]
+then
+   mysql -uroot <<EOF 2>&1 | grep -v "ERROR 1396"
+DROP USER xappuser@'%';
+DROP USER xappuser@localhost;
+DROP USER xappowner@'%';
+DROP USER xappowner@localhost;
+DROP DATABASE IF EXISTS xdb_init_test;
+DROP DATABASE IF EXISTS xdb_init_test2;
+EOF
+   exit 0
+   rm -rf test/data
+fi
